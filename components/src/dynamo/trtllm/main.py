@@ -194,6 +194,11 @@ async def init(runtime: DistributedRuntime, config: Config):
         "return_perf_metrics": config.publish_events_and_metrics,
     }
 
+    # Add guided decoding backend if specified (enables JSON schema enforcement)
+    if config.guided_decoding_backend:
+        arg_map["guided_decoding_backend"] = config.guided_decoding_backend
+        logging.info(f"Guided decoding enabled with backend: {config.guided_decoding_backend}")
+
     if config.extra_engine_args != "":
         # TODO: Support extra engine args from json file as well.
         arg_map = update_llm_args_with_extra_options(arg_map, config.extra_engine_args)
