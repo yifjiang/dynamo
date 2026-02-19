@@ -384,6 +384,13 @@ class HandlerBase:
             adapters = create_trtllm_adapters(processors)
             sampling_params.logits_processor = adapters
 
+        # Build stop-token filter from request config (model-agnostic).
+        # This catches EOS/stop tokens leaked by speculative decoding or
+        # the backend.rs hidden_stop_ids bug (PR #4924 regression, fixed in PR #5238).
+        _eos_ids = set(request.get("eos_token_ids", []))
+        _stop_ids = set(sampling_params.stop_token_ids or [])
+        _stop_filter = _eos_ids | _stop_ids
+
         prefill_result = request.get("prefill_result")
         prefill_prompt_tokens_details = (
             prefill_result.get("prompt_tokens_details") if prefill_result else None
@@ -417,7 +424,13 @@ class HandlerBase:
                     # tokens generated in this iteration to create the "delta".
                     next_total_toks = len(output.token_ids)
 
-                    out = {"token_ids": output.token_ids[num_output_tokens_so_far:]}
+                    delta_token_ids = list(output.token_ids[num_output_tokens_so_far:])
+
+                    # Filter EOS/stop tokens from streaming chunks to prevent leakage.
+                    if delta_token_ids and _stop_filter:
+                        delta_token_ids = [t for t in delta_token_ids if t not in _stop_filter]
+
+                    out = {"token_ids": delta_token_ids}
 
                     # Extract logprobs from the output
                     log_probs, top_logprobs = self._extract_logprobs(
