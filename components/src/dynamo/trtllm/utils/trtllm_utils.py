@@ -59,6 +59,7 @@ class Config:
         self.dump_config_to: Optional[str] = None
         self.custom_jinja_template: Optional[str] = None
         self.dyn_endpoint_types: str = "chat,completions"
+        self.guided_decoding_backend: Optional[str] = None
         self.store_kv: str = ""
         self.request_plane: str = ""
         self.enable_local_indexer: bool = False
@@ -95,6 +96,7 @@ class Config:
             f"tool_call_parser={self.tool_call_parser}, "
             f"dump_config_to={self.dump_config_to}, "
             f"custom_jinja_template={self.custom_jinja_template}, "
+            f"guided_decoding_backend={self.guided_decoding_backend}, "
             f"store_kv={self.store_kv}, "
             f"request_plane={self.request_plane}, "
             f"enable_local_indexer={self.enable_local_indexer}, "
@@ -281,6 +283,12 @@ def cmd_line_args():
         choices=get_reasoning_parser_names(),
         help="Reasoning parser name for the model. If not specified, no reasoning parsing is performed.",
     )
+    parser.add_argument(
+        "--dyn-guided-decoding-backend",
+        type=str,
+        default=None,
+        help="Guided decoding backend to use (e.g., 'xgrammar'). If not specified, uses TensorRT-LLM default.",
+    )
     add_config_dump_args(parser)
     parser.add_argument(
         "--custom-jinja-template",
@@ -373,6 +381,7 @@ def cmd_line_args():
 
     config.reasoning_parser = args.dyn_reasoning_parser
     config.tool_call_parser = args.dyn_tool_call_parser
+    config.guided_decoding_backend = args.dyn_guided_decoding_backend
     config.dump_config_to = args.dump_config_to
     config.dyn_endpoint_types = args.dyn_endpoint_types
     config.store_kv = args.store_kv

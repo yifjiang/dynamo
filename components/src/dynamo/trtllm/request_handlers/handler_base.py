@@ -15,6 +15,7 @@
 
 import asyncio
 import copy
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -27,6 +28,7 @@ from tensorrt_llm.executor.result import GenerationResult
 from tensorrt_llm.executor.utils import RequestError
 from tensorrt_llm.llmapi import DisaggregatedParams as LlmDisaggregatedParams
 from tensorrt_llm.llmapi.llm import SamplingParams
+from tensorrt_llm.sampling_params import GuidedDecodingParams
 
 from dynamo._core import Context
 from dynamo.logits_processing.examples import HelloWorldLogitsProcessor
@@ -303,8 +305,33 @@ class HandlerBase:
         for key, value in request["sampling_options"].items():
             if not value:
                 continue
+            if key == "guided_decoding":
+                # Handle guided_decoding separately below
+                continue
             if hasattr(sampling_params, key):
                 setattr(sampling_params, key, value)
+
+        # Handle guided_decoding from sampling_options
+        guided_decoding = request["sampling_options"].get("guided_decoding")
+        if guided_decoding and isinstance(guided_decoding, dict):
+            json_schema = guided_decoding.get("json")
+            regex_pattern = guided_decoding.get("regex")
+            grammar = guided_decoding.get("grammar")
+
+            if json_schema:
+                schema_str = json.dumps(json_schema) if isinstance(json_schema, dict) else json_schema
+                sampling_params.guided_decoding = GuidedDecodingParams(json=schema_str)
+                logging.debug(f"Set guided_decoding json schema: {schema_str[:200]}...")
+            elif regex_pattern:
+                sampling_params.guided_decoding = GuidedDecodingParams(regex=regex_pattern)
+                logging.debug(f"Set guided_decoding regex: {regex_pattern}")
+            elif grammar:
+                sampling_params.guided_decoding = GuidedDecodingParams(grammar=grammar)
+                logging.debug(f"Set guided_decoding grammar: {grammar[:200]}...")
+            else:
+                # json_object mode (no schema, just valid JSON)
+                sampling_params.guided_decoding = GuidedDecodingParams(json_object=True)
+                logging.debug("Set guided_decoding json_object=True")
 
         # Additional sampling params in output options
         output_options = request.get("output_options", {})

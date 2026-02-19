@@ -194,6 +194,17 @@ async def init(runtime: DistributedRuntime, config: Config):
         "return_perf_metrics": config.publish_events_and_metrics,
     }
 
+    # Add guided_decoding_backend if configured (wrapped in try/except for compatibility)
+    if getattr(config, "guided_decoding_backend", None):
+        try:
+            arg_map["guided_decoding_backend"] = config.guided_decoding_backend
+            logging.info(f"Set guided_decoding_backend: {config.guided_decoding_backend}")
+        except Exception as e:
+            logging.warning(
+                f"Failed to set guided_decoding_backend: {e}. "
+                "Guided decoding will use the default backend."
+            )
+
     if config.extra_engine_args != "":
         # TODO: Support extra engine args from json file as well.
         arg_map = update_llm_args_with_extra_options(arg_map, config.extra_engine_args)
