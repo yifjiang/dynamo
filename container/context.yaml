@@ -39,6 +39,18 @@ dynamo:
   enable_gpu_memory_service: "true"
   ffmpeg_version: "8.1"
   efa_version: 1.47.0
+  # Patched libfabric installed OVER the EFA installer's stock binary by the
+  # aws.Dockerfile stage. ofiwg/libfabric v2.5.x carries the CUDA dmabuf MR fix
+  # (https://github.com/ofiwg/libfabric/commit/c9e3c0c1bc5474b96b4e08498f35810ba6bddad2,
+  # "prov/efa: Implement dmabuf try/fallback logic") that makes fi_mr_reg succeed
+  # when registering VRAM on GB200 EFA hardware. Without this, the stock EFA
+  # libfabric (and aws/libfabric forks lower than v2.5) falls through to
+  # ibv_reg_mr() with a GPU VA and returns EFAULT on the aws-64k kernel.
+  # NOTE: EFA installer 1.48.0 is broken on Ubuntu 24.04 (libfabric1-aws requires
+  # ibverbs-providers >= 59; Ubuntu 24.04 ships 50.x). If you bump this, stay
+  # on 1.46.x / 1.47.x until either Ubuntu catches up or AWS publishes a fix.
+  patched_libfabric_repo: https://github.com/ofiwg/libfabric.git
+  patched_libfabric_ref: v2.5.1
 
 vllm:
   cuda12.9:

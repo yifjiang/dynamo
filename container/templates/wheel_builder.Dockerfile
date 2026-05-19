@@ -116,10 +116,18 @@ RUN apt-get update -y \
 {% if device == "cuda" %}
 # Install system dependencies
 # Cache dnf downloads; sharing=locked avoids dnf/rpm races with concurrent builds.
+# --setopt=tsflags=nocontexts: skip SELinux file-context labeling. The manylinux
+# base image's libselinux Python bindings raise `ValueError: SELinux policy is
+# not managed or store cannot be accessed.` when the build host kernel has
+# SELinux disabled or in a non-default state — see ai-dynamo/dynamo build
+# failures on hosts where /sys/fs/selinux isn't mounted in the container.
+# nocontexts is safe regardless of host SELinux state (container itself is
+# unaffected; only file-context labels on installed RPMs are skipped, and the
+# resulting image is used in non-SELinux-enforcing runtime hosts).
 RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
-    dnf install -y almalinux-release-synergy && \
+    dnf install -y --setopt=tsflags=nocontexts almalinux-release-synergy && \
     dnf config-manager --set-enabled powertools && \
-    dnf install -y \
+    dnf install -y --setopt=tsflags=nocontexts \
         # Autotools (required for UCX, libfabric ./autogen.sh and ./configure)
         autoconf \
         automake \
@@ -266,7 +274,7 @@ RUN --mount=type=secret,id=aws-web-identity-token,target=/run/secrets/aws-token 
     apt-get update -y && apt-get install -y build-essential pkg-config xz-utils; \
     apt-get clean && rm -rf /var/lib/apt/lists/*; \
     elif [ "$DEVICE" = "cuda" ]; then \
-    dnf install -y pkg-config xz; \
+    dnf install -y --setopt=tsflags=nocontexts pkg-config xz; \
     fi && \
     cd /tmp && \
     curl --retry 5 --retry-delay 3 -LO https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz && \
@@ -391,6 +399,42 @@ RUN --mount=type=secret,id=aws-web-identity-token,target=/run/secrets/aws-token 
     /tmp/use-sccache.sh show-stats "LIBFABRIC" && \
     echo "/usr/local/libfabric/lib" > /etc/ld.so.conf.d/libfabric.conf && \
     ldconfig
+{% endif %}
+
+{% if make_efa == true %}
+# Patched libfabric (separate from NIXL_LIBFABRIC_REF). Built here in wheel_builder so the
+# build deps and intermediate artifacts stay out of the runtime image — the aws stage
+# bind-mounts the resulting tree at /opt/amazon/efa-patched and copies the .so + fi_info
+# over the EFA installer's stock binary. See container/templates/aws.Dockerfile for the
+# overlay logic + the SONAME-force + stock-binary cleanup that follow.
+ARG PATCHED_LIBFABRIC_REPO
+ARG PATCHED_LIBFABRIC_REF
+RUN --mount=type=secret,id=aws-web-identity-token,target=/run/secrets/aws-token \
+    --mount=type=secret,id=aws-role-arn,env=AWS_ROLE_ARN \
+    export AWS_WEB_IDENTITY_TOKEN_FILE=/run/secrets/aws-token && \
+    export SCCACHE_S3_KEY_PREFIX="${SCCACHE_S3_KEY_PREFIX:-${TARGETARCH}}" && \
+    if [ "$USE_SCCACHE" = "true" ]; then \
+        eval $(/tmp/use-sccache.sh setup-env); \
+    fi && \
+    cd /usr/local/src && \
+    git clone --depth 1 --branch ${PATCHED_LIBFABRIC_REF} ${PATCHED_LIBFABRIC_REPO} libfabric-patched && \
+    cd libfabric-patched && \
+    ./autogen.sh && \
+    ./configure --prefix="/opt/amazon/efa-patched" \
+                --disable-verbs \
+                --disable-psm3 \
+                --disable-opx \
+                --disable-usnic \
+                --disable-rstream \
+                --enable-efa \
+                --with-cuda=/usr/local/cuda \
+                --enable-cuda-dlopen \
+                --with-gdrcopy \
+                --enable-gdrcopy-dlopen && \
+    make -j$(nproc) && \
+    make install && \
+    /tmp/use-sccache.sh show-stats "PATCHED_LIBFABRIC" && \
+    cd .. && rm -rf libfabric-patched
 {% endif %}
 
 {% if framework == "vllm" and device == "cuda" %}
