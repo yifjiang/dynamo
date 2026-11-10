@@ -172,9 +172,13 @@ async def native_generate_stream(
         try:
             await responses.aclose()
         except BaseException as cleanup_error:
-            engine_error.add_note(
-                f"SGLang native iterator cleanup also failed: {type(cleanup_error).__name__}"
-            )
+            try:
+                engine_error.add_note(
+                    f"SGLang native iterator cleanup also failed: {type(cleanup_error).__name__}"
+                )
+            except BaseException:
+                # A broken note sink must not replace the primary exception.
+                pass
         raise
     else:
         await responses.aclose()

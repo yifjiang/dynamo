@@ -104,6 +104,24 @@ async def test_engine_failure_stays_primary_when_inner_cleanup_also_fails(error_
     assert primary.__notes__ == ["SGLang native iterator cleanup also failed: RuntimeError"]
 
 
+@pytest.mark.parametrize("broken_sink", ["override", "malformed_notes"])
+async def test_engine_failure_stays_primary_when_cleanup_note_cannot_be_added(broken_sink):
+    class BrokenNoteError(ValueError):
+        def add_note(self, note):
+            raise RuntimeError("note sink failure")
+
+    if broken_sink == "override":
+        primary = BrokenNoteError("engine failure")
+    else:
+        primary = ValueError("engine failure")
+        primary.__notes__ = 42
+    inner = _Responses(engine_error=primary, cleanup_error=RuntimeError("cleanup failure"))
+    with pytest.raises(ValueError) as caught:
+        await anext(_stream_for(inner))
+    assert caught.value is primary
+    assert inner.close_calls == 1
+
+
 async def test_task_cancellation_closes_inner_and_preserves_the_cancelled_error():
     started = asyncio.Event()
 
